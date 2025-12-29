@@ -172,11 +172,11 @@ app.post('/api/auth/login', async (req, res) => {
         }
         
         // Generate token
-        const token = jwt.sign(
-            { username: user.username, role: user.role },
-            JWT_SECRET,
-            { expiresIn: '24h' }
-        );
+       const token = jwt.sign(
+    { username: user.username, role: user.role },
+    JWT_SECRET
+);
+
         
         res.json({
             message: 'Login successful',
