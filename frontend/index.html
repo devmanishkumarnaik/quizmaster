@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Master</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .timer-warning { animation: pulse 1s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div id="app"></div>
+
+    <script>
+        // API Configuration
+        const API_URL = 'http://localhost:5000/api';
+        let authToken = localStorage.getItem('authToken') || null;
+        
+        // App State
+        let currentUser = null;
+        let currentCategory = null;
+        let currentQuestions = [];
+        let currentQuestionIndex = 0;
+        let userAnswers = [];
+        let timerInterval = null;
+        let timeLeft = 600;
+        let categoryScores = {};
+
+        // API Helper Functions
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            if (authToken) {
+                options.headers['Authorization'] = `Bearer ${authToken}`;
+            }
+
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(`${API_URL}${endpoint}`, options);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'API request failed');
+                }
+
+                return result;
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        // Initialize
+        async function init() {
+            if (authToken) {
+                try {
+                    // Verify token by making a request
+                    const user = JSON.parse(localStorage.getItem('currentUser'));
+                    if (user) {
+                        currentUser = user;
+                        if (user.role === 'teacher') {
+                            showTeacherDashboard();
+                        } else {
+                            showStudentDashboard();
+                        }
+                        return;
+                    }
+                } catch (error) {
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('currentUser');
+                    authToken = null;
+                }
+            }
+            showLogin();
+        }
+
+        // Authentication
+        function showLogin() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen gradient-bg flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in">
+                        <h1 class="text-4xl font-bold text-center text-gray-800 mb-2">Quiz Master</h1>
+                        <p class="text-center text-gray-600 mb-8">Please login or sign up to continue</p>
+                        
+                        <div class="mb-6">
+                            <label class="block text-gray-700 font-semibold mb-2">Username</label>
+                            <input type="text" id="username" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        </div>
+                        <div class="mb-6">
+                            <label class="block text-gray-700 font-semibold mb-2">Password</label>
+                            <input type="password" id="password" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        </div>
+                        <div class="mb-6">
+                            <label class="block text-gray-700 font-semibold mb-2">Role</label>
+                            <select id="role" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="student">Student</option>
+                                <option value="teacher">Teacher</option>
+                            </select>
+                        </div>
+                        <div id="errorMsg" class="text-red-500 text-sm mb-4 hidden"></div>
+                        <button onclick="handleLogin()" class="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition mb-3">Login</button>
+                        <button onclick="handleSignup()" class="w-full bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 transition">Sign Up</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function handleLogin() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const role = document.getElementById('role').value;
+            const errorMsg = document.getElementById('errorMsg');
+
+            try {
+                const result = await apiCall('/auth/login', 'POST', { username, password, role });
+                authToken = result.token;
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(result.user));
+                currentUser = result.user;
+
+                if (role === 'teacher') {
+                    showTeacherDashboard();
+                } else {
+                    showStudentDashboard();
+                }
+            } catch (error) {
+                errorMsg.textContent = error.message;
+                errorMsg.classList.remove('hidden');
+            }
+        }
+
+        async function handleSignup() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const role = document.getElementById('role').value;
+            const errorMsg = document.getElementById('errorMsg');
+
+            try {
+                const result = await apiCall('/auth/register', 'POST', { username, password, role });
+                authToken = result.token;
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(result.user));
+                currentUser = result.user;
+
+                if (role === 'teacher') {
+                    showTeacherDashboard();
+                } else {
+                    showStudentDashboard();
+                }
+            } catch (error) {
+                errorMsg.textContent = error.message;
+                errorMsg.classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            authToken = null;
+            currentUser = null;
+            categoryScores = {};
+            showLogin();
+        }
+
+        // Teacher Dashboard
+        function showTeacherDashboard() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-lg">
+                        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-purple-600">Teacher Portal</h1>
+                            <div class="flex items-center gap-4">
+                                <span class="text-gray-700">👨‍🏫 ${currentUser.username}</span>
+                                <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition">Logout</button>
+                            </div>
+                        </div>
+                    </nav>
+                    
+                    <div class="container mx-auto px-4 py-8">
+                        <div class="max-w-6xl mx-auto">
+                            <div class="grid md:grid-cols-3 gap-6 mb-8">
+                                <div class="bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" onclick="showQuestionManager('general')">
+                                    <div class="text-4xl mb-3">🌍</div>
+                                    <h3 class="text-xl font-bold text-gray-800">General Knowledge</h3>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" onclick="showQuestionManager('aptitude')">
+                                    <div class="text-4xl mb-3">🧮</div>
+                                    <h3 class="text-xl font-bold text-gray-800">Aptitude</h3>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" onclick="showQuestionManager('technical')">
+                                    <div class="text-4xl mb-3">💻</div>
+                                    <h3 class="text-xl font-bold text-gray-800">Technical</h3>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-xl shadow-lg p-6">
+                                <button onclick="showStudentResults()" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition mb-3">View Student Results 📊</button>
+                                <button onclick="showLeaderboard()" class="w-full bg-yellow-500 text-white py-3 rounded-lg font-semibold hover:bg-yellow-600 transition">View Leaderboard 🏆</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Question Manager
+        async function showQuestionManager(category) {
+            try {
+                const questions = await apiCall(`/questions/${category}`);
+                
+                const categoryNames = {
+                    general: 'General Knowledge',
+                    aptitude: 'Aptitude',
+                    technical: 'Technical'
+                };
+                
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gray-50">
+                        <nav class="bg-white shadow-lg">
+                            <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 class="text-2xl font-bold text-purple-600">${categoryNames[category]} Manager</h1>
+                                <button onclick="showTeacherDashboard()" class="bg-gray-600 text-white px-4 py-2 rounded-lg">Back</button>
+                            </div>
+                        </nav>
+                        
+                        <div class="container mx-auto px-4 py-8">
+                            <div class="max-w-4xl mx-auto">
+                                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                                    <h2 class="text-2xl font-bold mb-4">Add New Question</h2>
+                                    <textarea id="newQuestion" class="w-full px-4 py-3 border rounded-lg mb-4" rows="2" placeholder="Question"></textarea>
+                                    <div class="grid md:grid-cols-2 gap-4 mb-4">
+                                        <input type="text" id="option1" class="px-4 py-3 border rounded-lg" placeholder="Option 1">
+                                        <input type="text" id="option2" class="px-4 py-3 border rounded-lg" placeholder="Option 2">
+                                        <input type="text" id="option3" class="px-4 py-3 border rounded-lg" placeholder="Option 3">
+                                        <input type="text" id="option4" class="px-4 py-3 border rounded-lg" placeholder="Option 4">
+                                    </div>
+                                    <select id="correctAnswer" class="w-full px-4 py-3 border rounded-lg mb-4">
+                                        <option value="0">Option 1</option>
+                                        <option value="1">Option 2</option>
+                                        <option value="2">Option 3</option>
+                                        <option value="3">Option 4</option>
+                                    </select>
+                                    <button onclick="addQuestion('${category}')" class="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700">Add Question</button>
+                                </div>
+                                
+                                <div class="bg-white rounded-xl shadow-lg p-6">
+                                    <h2 class="text-2xl font-bold mb-4">Existing Questions (${questions.length})</h2>
+                                    <div class="space-y-4">
+                                        ${questions.map((q, idx) => `
+                                            <div class="border rounded-lg p-4">
+                                                <div class="flex justify-between items-start mb-3">
+                                                    <div class="flex-1">
+                                                        <h3 class="font-semibold mb-2">${idx + 1}. ${q.question}</h3>
+                                                        <div class="grid grid-cols-2 gap-2 text-sm">
+                                                            ${q.options.map((opt, optIdx) => `
+                                                                <div class="${optIdx === q.correctAnswer ? 'text-green-600 font-semibold' : 'text-gray-600'}">
+                                                                    ${optIdx === q.correctAnswer ? '✓' : '•'} ${opt}
+                                                                </div>
+                                                            `).join('')}
+                                                        </div>
+                                                    </div>
+                                                    <button onclick="deleteQuestion('${q._id}', '${category}')" class="ml-4 bg-red-500 text-white px-3 py-1 rounded text-sm">Delete</button>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                alert('Error loading questions: ' + error.message);
+            }
+        }
+
+        async function addQuestion(category) {
+            const question = document.getElementById('newQuestion').value.trim();
+            const options = [
+                document.getElementById('option1').value.trim(),
+                document.getElementById('option2').value.trim(),
+                document.getElementById('option3').value.trim(),
+                document.getElementById('option4').value.trim()
+            ];
+            const correctAnswer = parseInt(document.getElementById('correctAnswer').value);
+
+            if (!question || options.some(opt => !opt)) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            try {
+                await apiCall('/questions', 'POST', { category, question, options, correctAnswer });
+                showQuestionManager(category);
+            } catch (error) {
+                alert('Error adding question: ' + error.message);
+            }
+        }
+
+        async function deleteQuestion(id, category) {
+            if (confirm('Delete this question?')) {
+                try {
+                    await apiCall(`/questions/${id}`, 'DELETE');
+                    showQuestionManager(category);
+                } catch (error) {
+                    alert('Error deleting question: ' + error.message);
+                }
+            }
+        }
+
+        // Student Results
+        async function showStudentResults() {
+            try {
+                const studentScores = await apiCall('/scores/all');
+                
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="min-h-screen bg-gray-50">
+                        <nav class="bg-white shadow-lg">
+                            <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 class="text-2xl font-bold text-purple-600">Student Results</h1>
+                                <button onclick="showTeacherDashboard()" class="bg-gray-600 text-white px-4 py-2 rounded-lg">Back</button>
+                            </div>
+                        </nav>
+                        
+                        <div class="container mx-auto px-4 py-8">
+                            <div class="max-w-6xl mx-auto bg-white rounded-xl shadow-lg p-6">
+                                ${Object.keys(studentScores).length === 0 ? `
+                                    <div class="text-center py-12">
+                                        <div class="text-6xl mb-4">📚</div>
+                                        <p class="text-gray-600 text-lg">No student data available</p>
+                                    </div>
+                                ` : `
+                                    <div class="space-y-6">
+                                        ${Object.entries(studentScores).map(([username, scores]) => `
+                                            <div class="border rounded-lg p-6">
+                                                <h3 class="text-xl font-bold mb-4">👨‍🎓 ${username}</h3>
+                                                <div class="space-y-3">
+                                                    ${scores.map((score, idx) => `
+                                                        <div class="bg-gray-50 rounded-lg p-4 flex justify-between">
+                                                            <div>
+                                                                <span class="font-semibold">Attempt ${idx + 1}</span>
+                                                                <span class="text-gray-600 text-sm ml-3">${new Date(score.date).toLocaleDateString()}</span>
+                                                            </div>
+                                                            <div class="text-right">
+                                                                <div class="font-bold text-purple-600">${score.percentage}%</div>
+                                                                <div class="text-sm text-gray-600">${score.score}/${score.total}</div>
+                                                            </div>
+                                                        </div>
+                                                    `).join('')}
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                alert('Error loading results: ' + error.message);
+            }
+        }
+
+        // Student Dashboard
+        async function showStudentDashboard() {
+            try {
+                const questionData = await apiCall('/questions');
+                
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="min-h-screen gradient-bg">
+                        <nav class="bg-white shadow-lg">
+                            <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 class="text-2xl font-bold text-purple-600">Quiz Master</h1>
+                                <div class="flex items-center gap-4">
+                                    <span class="text-gray-700">👨‍🎓 ${currentUser.username}</span>
+                                    <button onclick="showLeaderboard()" class="bg-yellow-500 text-white px-4 py-2 rounded-lg">Leaderboard</button>
+                                    <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg">Logout</button>
+                                </div>
+                            </div>
+                        </nav>
+                        
+                        <div class="container mx-auto px-4 py-12">
+                            <div class="text-center mb-12">
+                                <h2 class="text-4xl font-bold text-white mb-4">Choose Your Quiz</h2>
+                            </div>
+                            
+                            <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                                <div class="bg-white rounded-xl shadow-xl p-8 cursor-pointer hover:shadow-2xl transition" onclick="startQuiz('general')">
+                                    <div class="text-6xl mb-4 text-center">🌍</div>
+                                    <h3 class="text-2xl font-bold text-center mb-3">General Knowledge</h3>
+                                    <div class="text-center text-purple-600 font-semibold">${questionData.general.length} Questions</div>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-xl p-8 cursor-pointer hover:shadow-2xl transition" onclick="startQuiz('aptitude')">
+                                    <div class="text-6xl mb-4 text-center">🧮</div>
+                                    <h3 class="text-2xl font-bold text-center mb-3">Aptitude</h3>
+                                    <div class="text-center text-purple-600 font-semibold">${questionData.aptitude.length} Questions</div>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-xl p-8 cursor-pointer hover:shadow-2xl transition" onclick="startQuiz('technical')">
+                                    <div class="text-6xl mb-4 text-center">💻</div>
+                                    <h3 class="text-2xl font-bold text-center mb-3">Technical</h3>
+                                    <div class="text-center text-purple-600 font-semibold">${questionData.technical.length} Questions</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                alert('Error loading dashboard: ' + error.message);
+            }
+        }
+
+        // Start Quiz
+        async function startQuiz(category) {
+            try {
+                const questions = await apiCall(`/questions/${category}`);
+                currentCategory = category;
+                currentQuestions = shuffleArray(questions);
+                currentQuestionIndex = 0;
+                userAnswers = new Array(currentQuestions.length).fill(null);
+                timeLeft = 600;
+                startTimer();
+                showQuestion();
+            } catch (error) {
+                alert('Error starting quiz: ' + error.message);
+            }
+        }
+
+        function shuffleArray(array) {
+            const shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    submitQuiz();
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            const timerEl = document.getElementById('timer');
+            if (timerEl) {
+                timerEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                if (timeLeft < 60) timerEl.classList.add('timer-warning');
+            }
+        }
+
+        function showQuestion() {
+            const question = currentQuestions[currentQuestionIndex];
+            const app = document.getElementById('app');
+            
+            app.innerHTML = `
+                <div class="min-h-screen bg-gray-50">
+                    <nav class="bg-white shadow-lg">
+                        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 class="text-2xl font-bold text-purple-600">Quiz Master</h1>
+                            <div class="flex items-center gap-4">
+                                <div class="bg-purple-100 px-4 py-2 rounded-lg">
+                                    <span class="text-purple-800 font-semibold">Time: <span id="timer"></span></span>
+                                </div>
+                                <span>${currentUser.username}</span>
+                            </div>
+                        </div>
+                    </nav>
+                    
+                    <div class="container mx-auto px-4 py-8">
+                        <div class="max-w-3xl mx-auto bg-white rounded-xl shadow-lg p-8">
+                            <div class="mb-6">
+                                <div class="flex justify-between mb-4">
+                                    <span class="text-purple-600 font-semibold">${currentCategory.toUpperCase()}</span>
+                                    <span>Question ${currentQuestionIndex + 1} of ${currentQuestions.length}</span>
+                                </div>
+                                <div class="bg-gray-200 h-2 rounded-full">
+                                    <div class="bg-purple-600 h-2 rounded-full" style="width: ${((currentQuestionIndex + 1) / currentQuestions.length) * 100}%"></div>
+                                </div>
+                            </div>
+                            
+                            <h2 class="text-2xl font-bold mb-6">${question.question}</h2>
+                            
+                            <div class="space-y-3">
+                                ${question.options.map((opt, idx) => `
+                                    <label class="block p-4 border-2 rounded-lg cursor-pointer hover:bg-purple-50 ${userAnswers[currentQuestionIndex] === idx ? 'border-purple-600 bg-purple-50' : 'border-gray-300'}">
+                                        <input type="radio" name="answer" value="${idx}" class="mr-3" ${userAnswers[currentQuestionIndex] === idx ? 'checked' : ''} onchange="selectAnswer(${idx})">
+                                        ${opt}
+                                    </label>
+                                `).join('')}
+                            </div>
+                            
+                            <div class="flex justify-between mt-8">
+                                <button onclick="previousQuestion()" class="px-6 py-3 bg-gray-300 rounded-lg ${currentQuestionIndex === 0 ? 'invisible' : ''}">Previous</button>
+                                ${currentQuestionIndex < currentQuestions.length - 1 
+                                    ? '<button onclick="nextQuestion()" class="px-6 py-3 bg-purple-600 text-white rounded-lg">Next</button>'
+                                    : '<button onclick="submitQuiz()" class="px-6 py-3 bg-green-600 text-white rounded-lg">Submit</button>'
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            updateTimerDisplay();
+        }
+
+        function selectAnswer(idx) { userAnswers[currentQuestionIndex] = idx; }
+        function nextQuestion() { if (currentQuestionIndex < currentQuestions.length - 1) { currentQuestionIndex++; showQuestion(); } }
+        function previousQuestion() { if (currentQuestionIndex > 0) { currentQuestionIndex--; showQuestion(); } }
+
+        async function submitQuiz() {
+            clearInterval(timerInterval);
+            
+            let score = 0;
+            userAnswers.forEach((answer, idx) => {
+                if (answer === currentQuestions[idx].correctAnswer) score++;
+            });
+            
+            const result = {
+                score,
+                total: currentQuestions.length,
+                percentage: ((score / currentQuestions.length) * 100).toFixed(1)
+            };
+            
+            categoryScores[currentCategory] = result;
+            
+            const completedCategories = Object.keys(categoryScores).length;
+            if (completedCategories === 3) {
+                await saveFinalScore();
+            }
+            
+            showCategoryResult();
+        }
+
+        async function saveFinalScore() {
+            const totalScore = Object.values(categoryScores).reduce((sum, cat) => sum + cat.score, 0);
+            const totalQuestions = Object.values(categoryScores).reduce((sum, cat) => sum + cat.total, 0);
+            const overallPercentage = ((totalScore / totalQuestions) * 100).toFixed(1);
+            
+            try {
+                await apiCall('/scores', 'POST', {
+                    score: totalScore,
+                    total: totalQuestions,
+                    percentage: parseFloat(overallPercentage),
+                    categoryScores
+                });
+            } catch (error) {
+                console.error('Error saving score:', error);
+            }
+        }
+
+        function showCategoryResult() {
+            const result = categoryScores[currentCategory];
+            const completedCategories = Object.keys(categoryScores).length;
+            
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen gradient-bg flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+                        <div class="text-center mb-6">
+                            <div class="text-6xl mb-4">${result.percentage >= 70 ? '🎉' : '👍'}</div>
+                            <h2 class="text-3xl font-bold mb-2">${currentCategory} Complete!</h2>
+                        </div>
+                        
+                        <div class="bg-purple-50 rounded-lg p-6 mb-6">
+                            <div class="text-center mb-4">
+                                <div class="text-5xl font-bold text-purple-600">${result.score}/${result.total}</div>
+                                <div class="text-gray-600 mt-2">${result.percentage}%</div>
+                            </div>
+                            <div class="bg-gray-200 h-3 rounded-full">
+                                <div class="bg-purple-600 h-3 rounded-full" style="width: ${result.percentage}%"></div>
+                            </div>
+                        </div>
+                        
+                        ${completedCategories < 3 
+                            ? '<button onclick="showStudentDashboard()" class="w-full bg-purple-600 text-white py-3 rounded-lg">Continue</button>'
+                            : '<button onclick="showFinalResults()" class="w-full bg-green-600 text-white py-3 rounded-lg">View Results</button>'
+                        }
+                    </div>
+                </div>
+            `;
+        }
+
+        function showFinalResults() {
+            const totalScore = Object.values(categoryScores).reduce((sum, cat) => sum + cat.score, 0);
+            const totalQuestions = Object.values(categoryScores).reduce((sum, cat) => sum + cat.total, 0);
+            const overallPercentage = ((totalScore / totalQuestions) * 100).toFixed(1);
+            
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen gradient-bg">
+                    <div class="container mx-auto px-4 py-12">
+                        <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-2xl p-8">
+                            <div class="text-center mb-8">
+                                <div class="text-7xl mb-4">🏆</div>
+                                <h1 class="text-4xl font-bold mb-2">Quiz Complete!</h1>
+                            </div>
+                            
+                            <div class="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-8 text-white mb-8">
+                                <div class="text-center">
+                                    <div class="text-6xl font-bold mb-2">${totalScore}/${totalQuestions}</div>
+                                    <div class="text-2xl">Overall: ${overallPercentage}%</div>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-4 mb-8">
+                                <h3 class="text-xl font-bold mb-4">Category Breakdown</h3>
+                                ${Object.entries(categoryScores).map(([cat, data]) => `
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="font-semibold capitalize">${cat}</span>
+                                            <span class="text-purple-600 font-bold">${data.score}/${data.total} (${data.percentage}%)</span>
+                                        </div>
+                                        <div class="bg-gray-200 h-2 rounded-full">
+                                            <div class="bg-purple-600 h-2 rounded-full" style="width: ${data.percentage}%"></div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            
+                            <div class="grid md:grid-cols-2 gap-4">
+                                <button onclick="showLeaderboard()" class="bg-yellow-500 text-white py-3 rounded-lg font-semibold">Leaderboard</button>
+                                <button onclick="resetAndStart()" class="bg-purple-600 text-white py-3 rounded-lg font-semibold">Retake Quiz</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function showLeaderboard() {
+            try {
+                const leaderboard = await apiCall('/leaderboard');
+                
+                const app = document.getElementById('app');
+                const backButton = currentUser.role === 'teacher' 
+                    ? '<button onclick="showTeacherDashboard()" class="bg-purple-600 text-white px-4 py-2 rounded-lg">Back</button>'
+                    : '<button onclick="showStudentDashboard()" class="bg-purple-600 text-white px-4 py-2 rounded-lg">Back</button>';
+                
+                app.innerHTML = `
+                    <div class="min-h-screen gradient-bg">
+                        <nav class="bg-white shadow-lg">
+                            <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 class="text-2xl font-bold text-purple-600">Leaderboard</h1>
+                                ${backButton}
+                            </div>
+                        </nav>
+                        
+                        <div class="container mx-auto px-4 py-12">
+                            <div class="max-w-4xl mx-auto bg-white rounded-2xl shadow-2xl p-8">
+                                <div class="text-center mb-8">
+                                    <div class="text-6xl mb-4">🏆</div>
+                                    <h2 class="text-4xl font-bold mb-2">Top Performers</h2>
+                                </div>
+                                
+                                ${leaderboard.length === 0 ? `
+                                    <div class="text-center py-12">
+                                        <div class="text-6xl mb-4">📊</div>
+                                        <p class="text-gray-600 text-lg">No scores yet</p>
+                                    </div>
+                                ` : `
+                                    <div class="space-y-3">
+                                        ${leaderboard.map((score, idx) => `
+                                            <div class="flex items-center justify-between p-4 rounded-lg ${idx < 3 ? 'bg-gradient-to-r from-yellow-100 to-yellow-50' : 'bg-gray-50'}">
+                                                <div class="flex items-center gap-4">
+                                                    <div class="text-3xl font-bold ${idx === 0 ? 'text-yellow-500' : idx === 1 ? 'text-gray-400' : idx === 2 ? 'text-orange-600' : 'text-gray-600'}">
+                                                        ${idx + 1}
+                                                    </div>
+                                                    <div>
+                                                        <div class="font-semibold">${score.username}</div>
+                                                        <div class="text-sm text-gray-600">${new Date(score.date).toLocaleDateString()}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="text-right">
+                                                    <div class="font-bold text-purple-600">${score.percentage}%</div>
+                                                    <div class="text-sm text-gray-600">${score.score}/${score.total}</div>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                alert('Error loading leaderboard: ' + error.message);
+            }
+        }
+
+        function resetAndStart() {
+            categoryScores = {};
+            showStudentDashboard();
+        }
+
+        // Initialize
+        init();
+    </script>
+</body>
+</html>
